@@ -161,6 +161,30 @@ func currentTimeFormatted() string {
 	return currentTime.Weekday().String()[0:3] + ", " + fmt.Sprint(currentTime.Day()) + " " + currentTime.Month().String()[0:3] + " " + fmt.Sprint(currentTime.Year()) + " " + fmt.Sprint(currentTime.Hour()) + ":" + fmt.Sprint(currentTime.Minute()) + ":" + fmt.Sprint(currentTime.Second()) + " GMT"
 }
 
+func getClosestTimeIndex(timestamps Compact) int {
+	// Get the current time
+	now := time.Now()
+
+	// Initialize variables to store the index and difference
+	var closestIndex int
+	var closestDiff time.Duration
+
+	// Loop through the timestamps and find the one that is closest to the current time
+	for i, t := range timestamps.Properties.Timeseries {
+		diff := now.Sub(t.Time)
+		if diff < 0 {
+			diff = -diff
+		}
+		if closestDiff == 0 || diff < closestDiff {
+			closestIndex = i
+			closestDiff = diff
+		}
+	}
+
+	// Print the index of the closest timestamp
+	return closestIndex
+}
+
 func getCompact(coordinates string) Compact {
 	client := &http.Client{}
 
@@ -227,10 +251,12 @@ var rootCmd = &cobra.Command{
 		fmt.Println(cmd.Long)
 		if city == "" {
 			defaultCity := getDefaultCity().City
-			out := checkAndUpdateCache(defaultCity).Properties.Timeseries[0].Data.Instant.Details.AirTemperature
+			cache := checkAndUpdateCache(defaultCity)
+			out := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Data.Instant.Details.AirTemperature
 			fmt.Printf("Current Air Temp: %v\n", out)
 		} else {
-			out := checkAndUpdateCache(city).Properties.Timeseries[0].Data.Instant.Details.AirTemperature
+			cache := checkAndUpdateCache(city)
+			out := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Data.Instant.Details.AirTemperature
 			fmt.Printf("Current Air Temp: %v\n", out)
 		}
 	},

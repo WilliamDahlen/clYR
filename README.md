@@ -13,6 +13,7 @@ Install
 ```bash
 git clone git@github.com:WilliamDahlen/clyr.git
 cd clyr
+mkdir cache
 go build
 ./clyr
 ```
