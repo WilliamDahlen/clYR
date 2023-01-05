@@ -22,7 +22,7 @@ go build
 
 Use
 ```bash
-#Checks the graphical location of your IP address
+#If no city is supplied the geographical location of your IP address is used by default
 ./clyr
 This application uses the met API to display weather information in the terminal.
 No local cache exist, GET Oslo
