@@ -10,12 +10,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gocarina/gocsv"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+const URL = "https://api.met.no/weatherapi/locationforecast/2.0/compact?"
 
 type Compact struct {
 	Type     string `json:"type,omitempty"`
@@ -114,21 +118,28 @@ func getCords(cityname string) string {
 	return ""
 }
 
-func loadCache(cityname string) Compact {
-	in, err := os.OpenFile("cache/"+cityname+".json", os.O_RDWR|os.O_CREATE, os.ModePerm)
+func loadCache(cityname string) (Compact, error) {
+	cacheFile, _ := filepath.Glob("cache/" + city + "*.json")
+
+	var cache Compact
+	var err error
+
+	if len(cacheFile) != 0 {
+		in, err := os.OpenFile(cacheFile[0], os.O_RDWR|os.O_CREATE, os.ModePerm)
+		if err != nil {
+			panic(err)
+		}
+		defer in.Close()
+		byteValue, _ := io.ReadAll(in)
+		if err := json.Unmarshal(byteValue, &cache); err != nil {
+			panic(err)
+		}
+		return cache, err
+	}
 	if err != nil {
 		panic(err)
 	}
-	defer in.Close()
-
-	var cache Compact
-	byteValue, _ := io.ReadAll(in)
-
-	if err := json.Unmarshal(byteValue, &cache); err != nil {
-		panic(err)
-	}
-
-	return cache
+	return cache, err
 }
 
 func getDefaultCity() DefaultCity {
@@ -185,16 +196,15 @@ func getClosestTimeIndex(timestamps Compact) int {
 	return closestIndex
 }
 
-func getCompact(coordinates string) Compact {
+func getCompact(coordinates string) (object Compact, expireDate string) {
 	client := &http.Client{}
 
-	req, err := http.NewRequest("GET", "https://api.met.no/weatherapi/locationforecast/2.0/compact?"+coordinates, nil)
+	req, err := http.NewRequest("GET", URL+coordinates, nil)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	req.Header.Set("User-Agent", "clYR/0.1 willam@dahlen.dev")
-	req.Header.Set("If-Modified-Since", currentTimeFormatted())
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -207,31 +217,50 @@ func getCompact(coordinates string) Compact {
 		log.Fatalln(err)
 	}
 
+	// Retrieve the "Expires" header value as a string
+	expiresHeader := resp.Header.Get("Expires")
+
+	// Parse the header value into a time.Time value
+	expires, err := time.Parse(time.RFC1123, expiresHeader)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	// Format the time.Time value in the HTTP time format
+	expiresFormatted := expires.Format(http.TimeFormat)
+
 	var out Compact
 	json.Unmarshal(body, &out)
 
-	return out
+	return out, expiresFormatted
 }
 
 func checkAndUpdateCache(city string) Compact {
-	if _, err := os.Stat("cache/" + city + ".json"); err == nil {
-		cached := loadCache(city)
-		if cached.Properties.Meta.UpdatedAt.Add(2 * time.Hour).Before(time.Now().UTC()) {
-			log.Println("Stale Cache ")
-			out := getCompact(getCords(city))
+	cacheFile, _ := filepath.Glob("cache/" + city + "*.json")
+	if len(cacheFile) != 0 {
+		cached, _ := loadCache(city)
+		localCopyTimeStamp, _ := time.Parse(time.RFC1123, strings.Split(cacheFile[0], ".")[1])
+		localTimeStamp, _ := time.Parse(time.RFC1123, time.Now().UTC().Format(http.TimeFormat))
+		if localCopyTimeStamp.Before(localTimeStamp) {
+			err := os.Remove(cacheFile[0])
+			if err != nil {
+				log.Fatalln(err)
+			}
+			fmt.Println("Stale Cache ")
+			out, expireDate := getCompact(getCords(city))
 			file, _ := json.MarshalIndent(out, "", " ")
-			_ = os.WriteFile("cache/"+city+".json", file, 0644)
+			_ = os.WriteFile("cache/"+city+"."+expireDate+".json", file, 0644)
 			return out
 		} else {
-			log.Println("Valid Cache ")
+			fmt.Println("Valid Cache ")
 			return cached
 		}
 	} else {
-		log.Println("No local cache exist, GET " + city)
-		out := getCompact(getCords(city))
+		fmt.Println("No local cache exist, GET " + city)
+		out, expireDate := getCompact(getCords(city))
 		file, _ := json.MarshalIndent(out, "", " ")
-		os.Create("cache/" + city + ".json")
-		_ = os.WriteFile("cache/"+city+".json", file, 0644)
+		os.Create("cache/" + city + "." + expireDate + ".json")
+		_ = os.WriteFile("cache/"+city+"."+expireDate+".json", file, 0644)
 		return out
 	}
 }
@@ -252,12 +281,14 @@ var rootCmd = &cobra.Command{
 		if city == "" {
 			defaultCity := getDefaultCity().City
 			cache := checkAndUpdateCache(defaultCity)
-			out := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Data.Instant.Details.AirTemperature
-			fmt.Printf("Current Air Temp: %v\n", out)
+			temp := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Data.Instant.Details.AirTemperature
+			timeStamp := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Time.Add(1 * time.Hour).Format(http.TimeFormat)
+			fmt.Printf("Current Air Temp @ "+timeStamp+": %v\n", temp)
 		} else {
 			cache := checkAndUpdateCache(city)
-			out := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Data.Instant.Details.AirTemperature
-			fmt.Printf("Current Air Temp: %v\n", out)
+			temp := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Data.Instant.Details.AirTemperature
+			timeStamp := cache.Properties.Timeseries[getClosestTimeIndex(cache)].Time.Add(1 * time.Hour).Format(http.TimeFormat)
+			fmt.Printf("Current Air Temp @ "+timeStamp+": %v\n", temp)
 		}
 	},
 }
