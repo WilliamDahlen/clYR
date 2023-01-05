@@ -1,0 +1,20 @@
+name: Build and release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Goreleaser
+        run: |
+          curl -sL https://git.io/goreleaser | bash
+      - name: Build and release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN }}
+        run: |
+          goreleaser --rm-dist --github-api-token=$GORELEASER_TOKEN
