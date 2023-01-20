@@ -1,0 +1,26 @@
+builds:
+  - binary: clyr
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - 386
+      - amd64
+
+release:
+  draft: true
+  replace_existing_draft: true
+  name: Release ${TAG_NAME}
+  body: |
+    This is a release of clYR - The commandline interface for YR.no.
+  prerelease: false
+
+files:
+  - files:
+      - clyr
+      - clyr.exe
+    name: myapp-${TAG_NAME}-${GOOS}-${GOARCH}
+    globs:
+      - clyr
+      - clyr.exe
